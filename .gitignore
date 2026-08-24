@@ -19,6 +19,7 @@ data/*
 .env.*
 .hf_home/
 runs/
+unsloth_compiled_cache/
 
 cartridges/**/*.gguf
 cartridges/**/*.bin

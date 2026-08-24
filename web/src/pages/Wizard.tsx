@@ -3,7 +3,7 @@ import { NavLink, Route, Routes, useParams } from "react-router-dom";
 import Hint from "../components/Hint";
 import JobLog from "../components/JobLog";
 import SetupForm, { type SetupValues } from "../components/SetupForm";
-import { api, type CurriculumItem, type Job, type Project, type TopicRef } from "../api";
+import { api, type CurriculumItem, type Job, type Project, type RuntimeInfo, type TopicRef } from "../api";
 
 function latestJob(project: Project, kind: string): Job | undefined {
   return (project.jobs || []).find((job) => job.kind === kind);
@@ -450,7 +450,12 @@ function DistillStep({ project, onChange }: { project: Project; onChange: () => 
 function TrainStep({ project, onChange }: { project: Project; onChange: () => void }) {
   const [train, setTrain] = useState(project.train);
   const [err, setErr] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeInfo | null>(null);
   const job = useStepJob(project, "train", onChange);
+
+  useEffect(() => {
+    api.runtime().then(setRuntime).catch(() => setRuntime(null));
+  }, []);
 
   async function run() {
     setErr(null);
@@ -465,8 +470,16 @@ function TrainStep({ project, onChange }: { project: Project; onChange: () => vo
   return (
     <div>
       <p className="lead">
-        Automated QLoRA via Unsloth. Needs WSL2 + NVIDIA CUDA. Native Windows training is not supported.
+        Automated QLoRA via Unsloth. Needs an NVIDIA GPU and a CUDA PyTorch build in this venv.
+        First start can sit idle for a minute while kernels compile — leave it running.
       </p>
+      {runtime && (
+        <p className={runtime.cuda_available ? "note" : "err"}>
+          {runtime.cuda_available
+            ? `GPU: ${runtime.device_name} · ${runtime.torch} · CUDA ${runtime.cuda_built}`
+            : runtime.hint || "PyTorch cannot see a GPU."}
+        </p>
+      )}
       <div className="form">
         <label>
           <span className="field-label">

@@ -61,13 +61,26 @@ def run(config_path: Path) -> None:
         raise SystemExit(f"need at least 4 train examples, found {len(rows)}")
 
     log(f"Loading Unsloth model {cfg['train_id']} (seq={cfg['seq_len']})…")
+    from app.pipeline.gpu import require_cuda, unsloth_worker_env
+
+    gpu = require_cuda()
+    log(f"Using {gpu.get('device_name')} with {gpu.get('torch')} (CUDA {gpu.get('cuda_built')})")
+    unsloth_worker_env()
+    log("Importing Unsloth — first run compiles kernels and can look idle for a minute.")
     try:
-        from unsloth import FastLanguageModel, FastVisionModel
+        if cfg.get("vision"):
+            from unsloth import FastLanguageModel, FastVisionModel
+        else:
+            from unsloth import FastLanguageModel
+
+            FastVisionModel = None  # type: ignore[assignment, misc]
     except ImportError as exc:
         raise SystemExit(
-            "Unsloth is not installed. Use WSL2 + CUDA and `pip install unsloth` "
-            "(see README). Native Windows training is not supported."
+            "Unsloth is not installed. After CUDA PyTorch works, run "
+            "`pip install unsloth datasets` (see scripts/install_train.ps1)."
         ) from exc
+    except NotImplementedError as exc:
+        raise SystemExit(str(exc)) from exc
 
     try:
         from datasets import Dataset
@@ -190,6 +203,9 @@ def main() -> None:
     args = parser.parse_args()
     try:
         run(Path(args.config))
+    except KeyboardInterrupt:
+        log("TRAIN_ERROR: interrupted (do not Ctrl+C the API while Unsloth is compiling)")
+        raise SystemExit(130) from None
     except SystemExit:
         raise
     except Exception as exc:

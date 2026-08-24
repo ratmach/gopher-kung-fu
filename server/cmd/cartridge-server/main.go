@@ -12,6 +12,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +28,7 @@ func main() {
 		llama      = flag.String("llama-server", envOr("LLAMA_SERVER", "llama-server"), "path to llama-server")
 		maxLoaded  = flag.Int("max-loaded", 2, "how many GGUFs stay resident (LRU)")
 		gpuLayers  = flag.Int("ngl", 99, "GPU layers to offload (-ngl)")
+		ctxSize    = flag.Int("ctx-size", envOrInt("LLAMA_CTX_SIZE", 32768), "llama-server context window in tokens")
 	)
 	flag.Parse()
 
@@ -32,11 +36,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	f := farm.New(abs, lookPath(*llama), *maxLoaded, *gpuLayers)
+	llamaPath := lookPath(*llama)
+	if llamaPath == "" {
+		log.Printf("warning: llama-server not found — listing models works, chat returns 503. Pass --llama-server or put llama-server.exe on PATH (export leaves one at data/llama_cpp/bin)")
+	} else {
+		log.Printf("llama-server %s", llamaPath)
+	}
+	f := farm.New(abs, llamaPath, *maxLoaded, *gpuLayers)
+	f.CtxSize = *ctxSize
 	if err := f.Scan(); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("farm root %s — %d specialists", abs, len(f.Models()))
+	log.Printf("farm root %s — %d specialists, ctx %d", abs, len(f.Models()), f.CtxSize)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -116,15 +127,62 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+func envOrInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return fallback
+	}
+	return n
+}
+
 func lookPath(name string) string {
+	if p := resolveExe(name); p != "" {
+		return p
+	}
+	if name != "" {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	candidates := []string{
+		filepath.Join("data", "llama_cpp", "bin", "llama-server"),
+		filepath.Join("..", "data", "llama_cpp", "bin", "llama-server"),
+	}
+	if extra := os.Getenv("LLAMA_CPP_DIR"); extra != "" {
+		candidates = append(candidates,
+			filepath.Join(extra, "llama-server"),
+			filepath.Join(extra, "bin", "llama-server"),
+		)
+	}
+	for _, c := range candidates {
+		if p := resolveExe(c); p != "" {
+			return p
+		}
+	}
+	return ""
+}
+
+func resolveExe(name string) string {
 	if name == "" {
 		return ""
 	}
-	if _, err := os.Stat(name); err == nil {
-		return name
+	abs, err := filepath.Abs(name)
+	if err != nil {
+		return ""
 	}
-	if path, err := exec.LookPath(name); err == nil {
-		return path
+	try := []string{abs}
+	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(abs), ".exe") {
+		try = append(try, abs+".exe")
+	}
+	for _, path := range try {
+		st, err := os.Stat(path)
+		if err == nil && !st.IsDir() {
+			return path
+		}
 	}
 	return ""
 }

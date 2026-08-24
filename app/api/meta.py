@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.catalog import load_catalog
 from app.paths import CARTRIDGES_DIR
+from app.pipeline.gpu import probe_torch
 from app.teachers.presets import BASE_MODELS, TEACHER_PRESETS
 
 router = APIRouter(tags=["meta"])
@@ -24,6 +25,11 @@ def teachers() -> dict:
 @router.get("/base-models")
 def base_models() -> dict:
     return {"models": list(BASE_MODELS.values())}
+
+
+@router.get("/runtime")
+def runtime() -> dict:
+    return probe_torch()
 
 
 @router.get("/cartridges")

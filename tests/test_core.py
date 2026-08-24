@@ -1,6 +1,10 @@
+import os
+from pathlib import Path
+
 from app.models import Curriculum, CurriculumItem, Project, ShareGPTExample, ShareGPTTurn
 from app.pipeline.distill import planned_count
 from app.pipeline.filters import keep_example
+from app.pipeline.gpu import require_cuda
 from app.store import ProjectStore, slugify, validate_slug
 from app.teachers.client import parse_json_payload, strip_think
 
@@ -70,6 +74,55 @@ def test_distill_assignment_and_planned_count():
         items=[CurriculumItem(id="go-1", topic="Go", subtopic="chan", skill="write")]
     )
     assert planned_count(raw, curriculum) >= 8
+
+
+def test_require_cuda_explains_cpu_torch(monkeypatch):
+    import app.pipeline.gpu as gpu
+
+    monkeypatch.setattr(gpu, "nvidia_gpu_name", lambda: "NVIDIA GeForce RTX 5070")
+    monkeypatch.setattr(gpu, "probe_torch", lambda: {
+        "torch": "2.11.0+cpu",
+        "cuda_built": None,
+        "cuda_available": False,
+        "device_name": None,
+        "host_gpu": "NVIDIA GeForce RTX 5070",
+        "hint": "PyTorch is CPU-only, so Unsloth cannot see the GPU. nvidia-smi sees NVIDIA GeForce RTX 5070.",
+    })
+    try:
+        require_cuda()
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "CPU-only" in str(exc)
+        assert "5070" in str(exc)
+
+
+def test_unsloth_worker_env_points_at_data_cache():
+    from app.paths import UNSLOTH_CACHE
+    from app.pipeline.gpu import unsloth_worker_env
+
+    env = unsloth_worker_env({})
+    assert env["UNSLOTH_COMPILE_LOCATION"] == str(UNSLOTH_CACHE)
+    assert env["PYTHONIOENCODING"] == "utf-8"
+    assert env["PYTHONUTF8"] == "1"
+
+
+def test_tag_from_llama_cpp_zip_name():
+    from app.pipeline.llama_cpp_tools import _converter_ready, _tag_from_name
+
+    assert _tag_from_name("llama-b10604-bin-win-cpu-x64.zip") == "b10604"
+    assert _tag_from_name("nope") is None
+    assert _converter_ready(Path(".")) is False
+
+
+def test_prepend_windows_cmake(tmp_path, monkeypatch):
+    from app.pipeline import llama_cpp_tools as tools
+
+    cmake_bin = tmp_path / "CMake" / "bin"
+    cmake_bin.mkdir(parents=True)
+    monkeypatch.setattr(tools, "windows_cmake_bins", lambda: [cmake_bin])
+    env = {"PATH": "old"}
+    out = tools.prepend_windows_cmake(env)
+    assert str(cmake_bin) in out["PATH"].split(os.pathsep)[0]
 
 
 def test_read_project_strips_bom(tmp_path):

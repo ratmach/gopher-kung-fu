@@ -8,6 +8,7 @@ from app.paths import cartridge_dir
 from app.pipeline.curriculum import generate_curriculum
 from app.pipeline.distill import distill_project
 from app.pipeline.export import latest_run_id, spawn_export, write_card
+from app.pipeline.gpu import require_cuda
 from app.pipeline.train import spawn_train, write_train_config
 from app.secrets import SecretStore
 from app.store import ProjectStore
@@ -94,7 +95,10 @@ async def _pump_process(job_id: str, proc) -> int:
     loop = asyncio.get_running_loop()
     while True:
         hub.check(job_id)
-        line = await loop.run_in_executor(None, proc.stdout.readline)
+        try:
+            line = await loop.run_in_executor(None, proc.stdout.readline)
+        except UnicodeDecodeError:
+            continue
         if line == "":
             break
         text = line.rstrip()
@@ -114,6 +118,11 @@ async def run_train(job_id: str, slug: str, store: ProjectStore) -> None:
         project.error = None
         store.save(project)
         config_path = write_train_config(project, job_id)
+        gpu = require_cuda()
+        await hub.log(
+            job_id,
+            f"GPU ready: {gpu.get('device_name')} ({gpu.get('torch')}, CUDA {gpu.get('cuda_built')})",
+        )
         await hub.log(job_id, f"Launching Unsloth QLoRA worker ({config_path})")
         proc = spawn_train(config_path)
         hub.attach_process(job_id, proc)

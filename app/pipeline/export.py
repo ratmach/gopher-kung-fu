@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 from app.models import Project
 from app.paths import cartridge_dir, project_dir
+from app.pipeline.gpu import spawn_python_worker, unsloth_worker_env
 from app.teachers.presets import base_model_spec
 
 
@@ -55,14 +54,8 @@ def spawn_export(project: Project, run_id: str) -> subprocess.Popen:
     }
     config = dest / "export.json"
     config.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    env = os.environ.copy()
-    env.setdefault("PYTHONUNBUFFERED", "1")
-    return subprocess.Popen(
-        [sys.executable, "-m", "app.pipeline.export_worker", "--config", str(config)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        env=env,
+    return spawn_python_worker(
+        ["-m", "app.pipeline.export_worker", "--config", str(config)],
+        unsloth_worker_env(),
         cwd=str(Path(__file__).resolve().parents[2]),
     )

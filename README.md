@@ -1,4 +1,6 @@
-# Specialist farm
+# Gopher Kung-Fu 
+
+## Specialist farm
 
 Local factory for **true** niche coding SLMs. Each specialist is its own fine-tune and GGUF, not a system prompt. One Go server hosts all of them. An external LLM (Cursor, Claude, …) asks by name:
 
@@ -36,35 +38,59 @@ npm install
 Two terminals:
 
 ```powershell
-.\.venv\Scripts\python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --reload-exclude data --reload-exclude unsloth_compiled_cache --reload-exclude .venv --reload-exclude web
 cd web
 npm run dev
 ```
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
-**Training** needs **WSL2 + NVIDIA CUDA**. Native Windows PyTorch/Unsloth is out of scope.
+**Training** needs an **NVIDIA GPU** and a **CUDA PyTorch** build. `pip install unsloth` on Windows often pulls the CPU wheel (`torch==…+cpu`). Unsloth then fails with "cannot find any torch accelerator".
 
-```bash
-# inside WSL
-pip install -e .
-pip install unsloth datasets
-# first run will pull unsloth/Qwen3-1.7B-unsloth-bnb-4bit
+```powershell
+# in this repo's .venv — installs CUDA 13.0 wheels (driver 12.8+ / 13.x)
+.\scripts\install_train.ps1
 ```
+
+Or by hand:
+
+```powershell
+.\.venv\Scripts\pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu130
+.\.venv\Scripts\pip install --upgrade unsloth datasets
+.\.venv\Scripts\python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+```
+
+RTX 50-series (Blackwell) needs CUDA 12.8+ wheels (`cu128` / `cu130`), not the default CPU or cu124 builds.
+
+VRAM: ~8 GB for Qwen3 1.7B QLoRA; prefer 12 GB+ for Ministral 3B. First train downloads `unsloth/Qwen3-1.7B-unsloth-bnb-4bit`.
 
 VRAM: ~8 GB for Qwen3 1.7B QLoRA; prefer 12 GB+ for Ministral 3B.
 
-**Export** uses Unsloth `save_pretrained_gguf` when available, otherwise llama.cpp (`convert_hf_to_gguf.py` + `llama-quantize`). Set `LLAMA_CPP_DIR` if you use the latter.
+**Export** converts the merged HF weights to GGUF **Q4_K_M**. On Windows this downloads official `llama.cpp` CPU binaries (`llama-quantize`) plus `convert_hf_to_gguf.py` — it does **not** compile llama.cpp and does not need CMake. Unsloth's bundled zip hits the Windows 260-character path limit and then wrongly tries `winget install Kitware.CMake` even when CMake is already installed.
+
+You can still point at a local checkout with `LLAMA_CPP_DIR`.
 
 ## Farm server
 
-```bash
+From the repo root (uses `go.work` → `server/go.mod`):
+
+```powershell
 go run ./server/cmd/cartridge-server -cartridges ./cartridges -addr 127.0.0.1:8080
 ```
 
-Needs `llama-server` on `PATH` (or `--llama-server` / `LLAMA_SERVER`) to actually answer. Listing models works from `card.json` alone.
+Or: `go -C server run ./cmd/cartridge-server -cartridges ../cartridges -addr 127.0.0.1:8080`
 
-At most `--max-loaded` GGUFs stay in VRAM (default 2). Idle specialists unload (LRU).
+Needs `llama-server` to actually answer. Listing models works from `card.json` alone.
+
+Resolution order: `--llama-server` / `LLAMA_SERVER`, then `PATH`, then the CPU binary export already dropped at `data/llama_cpp/bin/llama-server.exe` (run from the repo root). Explicit path:
+
+```powershell
+go run ./server/cmd/cartridge-server -cartridges ./cartridges -addr 127.0.0.1:8080 -llama-server .\data\llama_cpp\bin\llama-server.exe
+```
+
+Context window is `--ctx-size` / `LLAMA_CTX_SIZE` (default **32768**, Qwen3's trained length). Coding clients like Kilo Code wrap a one-word prompt in a large system prompt + tool schemas; 4096 is too small for that.
+
+At most `--max-loaded` GGUFs stay in VRAM (default 2). Idle specialists unload (LRU). Restart the farm after changing `--ctx-size` so the already-loaded llama-server is replaced.
 
 ## Layout
 

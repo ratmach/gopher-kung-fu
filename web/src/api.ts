@@ -68,8 +68,18 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export type RuntimeInfo = {
+  torch?: string | null;
+  cuda_built?: string | null;
+  cuda_available: boolean;
+  device_name?: string | null;
+  host_gpu?: string | null;
+  hint?: string | null;
+};
+
 export const api = {
   catalog: () => req<{ categories: { id: string; label: string; topics: TopicRef[] }[] }>("/api/catalog"),
+  runtime: () => req<RuntimeInfo>("/api/runtime"),
   teachers: () => req<{ presets: { id: string; label: string; base_url: string; model: string; notes: string }[] }>("/api/teachers"),
   baseModels: () => req<{ models: { id: string; label: string; vram_hint: string; default?: boolean }[] }>("/api/base-models"),
   cartridges: () => req<{ cartridges: { id: string; name: string; description: string; ready: boolean }[] }>("/api/cartridges"),

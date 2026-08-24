@@ -43,6 +43,7 @@ type Farm struct {
 	Host        string
 	MaxLoaded   int
 	GPULayers   int
+	CtxSize     int
 
 	mu        sync.Mutex
 	cards     map[string]Card
@@ -60,6 +61,7 @@ func New(dir, llama string, maxLoaded, gpuLayers int) *Farm {
 		Host:        "127.0.0.1",
 		MaxLoaded:   maxLoaded,
 		GPULayers:   gpuLayers,
+		CtxSize:     32768,
 		cards:       map[string]Card{},
 		loaded:      map[string]*instance{},
 		nextPort:    18100,
@@ -149,11 +151,15 @@ func (f *Farm) Ensure(id string) (*instance, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx := f.CtxSize
+	if ctx < 1 {
+		ctx = 32768
+	}
 	args := []string{
 		"-m", gguf,
 		"--host", f.Host,
 		"--port", fmt.Sprintf("%d", port),
-		"--ctx-size", "4096",
+		"--ctx-size", fmt.Sprintf("%d", ctx),
 	}
 	if f.GPULayers > 0 {
 		args = append(args, "-ngl", fmt.Sprintf("%d", f.GPULayers))
