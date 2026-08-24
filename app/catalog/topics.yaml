@@ -1,0 +1,33 @@
+categories:
+  - id: languages
+    label: Languages
+    topics:
+      - {id: go, label: Go}
+      - {id: python, label: Python}
+      - {id: typescript, label: TypeScript}
+      - {id: rust, label: Rust}
+      - {id: sql, label: SQL}
+      - {id: bash, label: Bash / POSIX shell}
+  - id: frameworks
+    label: Frameworks
+    topics:
+      - {id: react, label: React}
+      - {id: chi, label: Go chi}
+      - {id: fastapi, label: FastAPI}
+      - {id: django, label: Django}
+      - {id: nextjs, label: Next.js}
+  - id: infra
+    label: Infra
+    topics:
+      - {id: docker, label: Docker}
+      - {id: kubernetes, label: Kubernetes}
+      - {id: terraform, label: Terraform}
+      - {id: linux, label: Linux}
+      - {id: http-apis, label: HTTP / APIs}
+  - id: practices
+    label: Practices
+    topics:
+      - {id: testing, label: Testing}
+      - {id: concurrency, label: Concurrency}
+      - {id: debugging, label: Debugging}
+      - {id: code-review, label: Code review}
