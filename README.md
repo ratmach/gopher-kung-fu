@@ -96,7 +96,6 @@ At most `--max-loaded` GGUFs stay in VRAM (default 2). Idle specialists unload (
 
 ```
 data/projects/<slug>/     # project.json, curriculum, synthetic/*.jsonl, runs/
-data/secrets.json         # API keys (gitignored)
 cartridges/<slug>/        # GGUF + card.json
 ```
 
