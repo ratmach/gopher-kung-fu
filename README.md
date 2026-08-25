@@ -1,26 +1,32 @@
-# Gopher Kung-Fu 
+# Gopher Kung-Fu
 
-## Specialist farm
+<p align="center">
+  <img src="gopher-kung-fu.jpeg" alt="I know kung fu." width="720">
+</p>
 
-Local factory for **true** niche coding SLMs. Each specialist is its own fine-tune and GGUF, not a system prompt. One Go server hosts all of them. An external LLM (Cursor, Claude, …) asks by name:
+Local factory for **true** niche coding SLMs. Each specialist is its own fine-tune and GGUF, not a system prompt. One Go farm hosts them. An external LLM (Kimi, Claude, Cursor, …) plans; the cartridge implements.
 
 ```http
 POST http://127.0.0.1:8080/v1/chat/completions
-{"model":"gopher-kungfu","messages":[{"role":"user","content":"fix this deadlock"}]}
+{"model":"gopher-kungfu","max_tokens":6144,"messages":[{"role":"user","content":"fix this deadlock"}]}
 ```
 
 `GET /v1/models` is the roster.
 
+Shipped cartridge: **gopher-kungfu** (Qwen3 1.7B, Q4_K_M) — Go, gin, SQL, concurrency, code review. Do **not** put that id in the agent model slot. Keep a capable model as the agent; call the farm through MCP or a raw POST.
+
 ## What v1 does
 
-1. Browser library (`+ SLM`)
+1. Browser library (`+ SLM`) — name a specialist, pick Qwen3 1.7B or Ministral 3B, pick a teacher
 2. Topic catalog + custom tags
-3. Teacher API writes a syllabus, then synthetic coding data (ShareGPT JSONL on disk)
-4. Unsloth QLoRA on **Qwen3 1.7B** (or Ministral 3B)
-5. Merge + GGUF **Q4_K_M**
-6. Farm server: many named specialists, LRU load-on-demand
+3. Teacher writes a syllabus. **Items per topic** is 4–80 (default **12**). Distill uses whatever is in that table
+4. Teacher writes synthetic ShareGPT JSONL. Human = short spec; assistant = complete fenced files. Write/debug rows that are mostly prose are dropped
+5. Examples land in this project's `synthetic/` **and** a reusable `data/library/<topic>/` shard (deduped by fingerprint). Later cartridges can reuse Go without re-paying for gin
+6. Unsloth QLoRA (seq_len default **2048**), then merge + GGUF **Q4_K_M**
+7. Farm server: named specialists, LRU load-on-demand
+8. MCP (`implement_go`): specialist generates; **the host writes** `.go` files, runs `go test`, retries up to 3 times, returns a **summary**. `ask_gopher_kungfu` is review/debug only
 
-Teacher presets: DeepSeek, Kimi/K2.5, OpenRouter, OpenAI, or any OpenAI-compatible base URL.
+Teacher presets: DeepSeek, Kimi/K2.5, OpenRouter (optional Batch API), OpenAI, or any OpenAI-compatible base URL.
 
 Some teacher APIs restrict training on outputs. That is your responsibility.
 
@@ -64,8 +70,6 @@ RTX 50-series (Blackwell) needs CUDA 12.8+ wheels (`cu128` / `cu130`), not the d
 
 VRAM: ~8 GB for Qwen3 1.7B QLoRA; prefer 12 GB+ for Ministral 3B. First train downloads `unsloth/Qwen3-1.7B-unsloth-bnb-4bit`.
 
-VRAM: ~8 GB for Qwen3 1.7B QLoRA; prefer 12 GB+ for Ministral 3B.
-
 **Export** converts the merged HF weights to GGUF **Q4_K_M**. On Windows this downloads official `llama.cpp` CPU binaries (`llama-quantize`) plus `convert_hf_to_gguf.py` — it does **not** compile llama.cpp and does not need CMake. Unsloth's bundled zip hits the Windows 260-character path limit and then wrongly tries `winget install Kitware.CMake` even when CMake is already installed.
 
 You can still point at a local checkout with `LLAMA_CPP_DIR`.
@@ -88,56 +92,39 @@ Resolution order: `--llama-server` / `LLAMA_SERVER`, then `PATH`, then the CPU b
 go run ./server/cmd/cartridge-server -cartridges ./cartridges -addr 127.0.0.1:8080 -llama-server .\data\llama_cpp\bin\llama-server.exe
 ```
 
-Context window is `--ctx-size` / `LLAMA_CTX_SIZE` (default **32768**, Qwen3's trained length). Coding clients like Kilo Code wrap a one-word prompt in a large system prompt + tool schemas; 4096 is too small for that.
+Context window is `--ctx-size` / `LLAMA_CTX_SIZE` (default **32768**, Qwen3's trained length). Coding clients wrap a one-word prompt in a large system prompt + tool schemas; 4096 is too small for that.
 
 At most `--max-loaded` GGUFs stay in VRAM (default 2). Idle specialists unload (LRU). Restart the farm after changing `--ctx-size` so the already-loaded llama-server is replaced.
 
-## Kilo Code (PyCharm MCP handoff)
+## MCP handoff
 
-Do **not** set Kilo’s chat model to `gopher-kungfu`. That dumps the agent system prompt + tools into the 1.7B specialist. Keep **Kimi** as the agent; the cartridge is an MCP tool that POSTs a small `messages: [{role, content}]` body.
-
-PyCharm’s plugin does **not** read `.kilocode/mcp.json` (`mcpServers`). It uses the same `kilo.jsonc` as the CLI:
+The specialist is the **implementer**. The big model plans, lists files, and reads the summary. It should **not** paste specialist source into its own write tool.
 
 ```powershell
 .\.venv\Scripts\pip install -e ".[mcp]"
 ```
 
-1. Start the farm on `127.0.0.1:8080`.
-2. In PyCharm: **Settings → Tools → Kilo Code**. Provider/model = Kimi K2.7, not the farm.
-3. Open **MCP Servers** (under Agent Behaviour / MCP Server Settings) and confirm **gopher-kungfu** is enabled. Restart the Kilo tool window if it was already open.
-4. If the server **keeps restarting**, the command must be `python.exe -u …\scripts\gopher_mcp.py` — not `cmd /c` and not `gopher_mcp.cmd`. Batch wrappers break stdin/stdout on Windows, so Kilo thinks the process died and respawns it. Also disable any duplicate entry in `.kilocode/mcp.json`.
-5. Approve `implement_go` (and `ask_gopher_kungfu`) when prompted. Pass **`workspace`** as the Go module root (or set `GOPHER_WORKSPACE`). The host writes `.go` files and runs `go test`; Kimi should **not** paste the source into a write tool.
+Start the farm, then launch the stdio server with **python.exe directly** — not `cmd /c` and not `scripts/gopher_mcp.cmd`. Batch wrappers break stdin/stdout on Windows, so Kilo thinks the process died and respawns it.
 
-Wired in-repo:
+```text
+.venv\Scripts\python.exe -u scripts\gopher_mcp.py
+```
 
-- `.kilo/kilo.jsonc` — JetBrains / CLI MCP (`type: local`, `command` array)
-- `.kilo/rules/gopher-kungfu.md` — when to call the specialist
-- `implement_go` — specialist generates; **MCP host writes** + optional `go test` (up to 3 attempts)
-- `ask_gopher_kungfu` — review/debug existing snippets
-- `scripts/gopher_mcp.py` — stdio MCP server (launch with `.venv\Scripts\python.exe -u`)
+macOS/Linux: `.venv/bin/python -u scripts/gopher_mcp.py`. Entry point: `gopher-mcp`.
 
-Override farm URL/model with `GOPHER_FARM_URL` / `GOPHER_FARM_MODEL`. Set `GOPHER_WORKSPACE` to the target Go module if you do not want to pass `workspace` on every call. On macOS/Linux use `"command": [".venv/bin/python", "scripts/gopher_mcp.py"]` instead of the `.cmd` wrapper.
+| Tool | Does |
+|---|---|
+| `implement_go` | Spec + constraints + file list → farm (`max_tokens` 6144) → host writes `.go` (no `..`) → `go test` → up to 3 retries → **summary** |
+| `ask_gopher_kungfu` | Review/debug an existing snippet (`max_tokens` 2048) |
+| `list_specialists` | Farm `GET /v1/models` |
 
-## Local workers (host write)
+`implement_go` fields: `spec`, `constraints`, `files` (newline-separated paths), optional `existing_code` (neighboring signatures only), `workspace` (Go module root). Set `apply=false` to inspect raw specialist text. `freeze_tests=true` skips `*_test.go`. One package or a few files per call — not the whole service.
 
-`implement_go` parses `### path.go` fences, writes under the workspace (no `..`, only `.go`), and returns a **summary**. Set `apply=false` only if you need the raw specialist text. `freeze_tests=true` skips `*_test.go`. See **[docs/local-workers.md](docs/local-workers.md)**.
+Env: `GOPHER_FARM_URL` (default `http://127.0.0.1:8080/v1/chat/completions`), `GOPHER_FARM_MODEL` (`gopher-kungfu`), `GOPHER_WORKSPACE`.
 
-## LLM → SLM handoff (current)
+**Kilo / PyCharm:** keep Kimi (or another capable agent) as the chat model. MCP settings must use a `command` array of `python.exe -u …\scripts\gopher_mcp.py`, not a `.cmd` wrapper. Approve `implement_go` when prompted. Details and the remaining supervisor/allowlist work: **[docs/local-workers.md](docs/local-workers.md)**.
 
-The specialist is the **implementer**. The big model (Kimi, Claude, …) plans, lists files, applies patches, and runs tests. Do not put `gopher-kungfu` in the agent model slot.
-
-**Reply cap** (completion tokens, not the 32k context window):
-
-| Call | `max_tokens` | Use |
-|---|---|---|
-| `ask_gopher_kungfu` / mode `ask` | **2048** | review / debug a snippet |
-| `implement_go` / mode `implement` | **6144** | full files |
-
-A 1024 cap only fits a sketch. MCP sets these automatically. Raw farm POSTs must set `max_tokens` yourself or llama-server will stop mid-file.
-
-### Implement prompt (what MCP prepends)
-
-The farm wraps `implement` calls with this contract, then your spec:
+MCP prepends this contract on `implement` calls, then your spec:
 
 ````text
 You are the Go specialist IMPLEMENTER, not an advisor.
@@ -158,60 +145,13 @@ Rules:
 - After the files, at most two sentences. No preamble before the first file.
 ````
 
-### How the orchestrator should call it
-
-One package or a few files per call — not the whole service.
-
-1. Decide layout and constraints (you / the LLM).
-2. Call `implement_go` with `spec`, `constraints`, and `files`.
-3. Write the returned `### path` files to disk. Do not re-type the package.
-4. `go test`. On failure, call `implement_go` again with the error and the failing file.
-
-MCP tool fields: `spec`, `constraints`, `files` (newline-separated paths), optional `existing_code` (neighboring signatures only).
-
-### Local run (no Kilo)
-
-Farm up, then implement-shaped POST (`max_tokens` 6144):
+Raw farm POSTs must set `max_tokens` themselves (1024 only fits a sketch) or llama-server will stop mid-file. Same caps in Python: `consult(..., mode="implement")` vs `mode="ask"` in `app/farm_consult.py`.
 
 ```powershell
 curl.exe -sS http://127.0.0.1:8080/v1/chat/completions `
   -H "Content-Type: application/json" `
   --data-binary "@handoff.json"
 ```
-
-`handoff.json`:
-
-````json
-{
-  "model": "gopher-kungfu",
-  "stream": false,
-  "max_tokens": 6144,
-  "messages": [
-    {
-      "role": "user",
-      "content": "You are the Go specialist IMPLEMENTER, not an advisor.\nReturn production code.\n\nFor each file:\n### relative/path.go\n```go\npackage ...\n```\n\nSpec:\nHTTP todo API with in-memory SQLite. Tests in-process.\n\nConstraints:\nmodernc.org/sqlite only. No CGO. No github.com/lib/pq.\nLayout: cmd/server, internal/db, internal/todo.\n\nFiles to write:\ninternal/todo/model.go\ninternal/todo/repository.go\ninternal/todo/repository_test.go"
-    }
-  ]
-}
-````
-
-Review/debug (cap 2048):
-
-````json
-{
-  "model": "gopher-kungfu",
-  "stream": false,
-  "max_tokens": 2048,
-  "messages": [
-    {
-      "role": "user",
-      "content": "Fix this deadlock.\n\nExisting code:\n```go\n// paste snippet\n```"
-    }
-  ]
-}
-````
-
-Python helper (same caps): `consult(..., mode="implement")` vs `mode="ask"` in `app/farm_consult.py`.
 
 ## Layout
 
@@ -223,8 +163,8 @@ data/library/<topic>/examples.jsonl   # reusable topic shards (deduped across pr
 cartridges/<slug>/                    # GGUF + card.json
 ```
 
-Distill asks the teacher for **spec-in / code-out** examples (complete fenced files, little prose) and keeps them if the assistant turn is actually code. Each topic is merged into `data/library/<topic>/` so a later cartridge can reuse Go without re-paying for gin. Project `train.jsonl` is still this run’s mix (plus 10% eval).
+Hold-out eval is 10%. Distill default is 100 examples per topic (wizard range 8–400).
 
 ## Later (not built)
 
-Repo ingest, Docker CUDA, cloud GPUs. Remaining worker pieces (cartridge allowlist, supervisor fan-out): [docs/local-workers.md](docs/local-workers.md).
+Repo ingest, Docker CUDA, cloud GPUs. Remaining worker pieces (cartridge import allowlist, supervisor `run_job`, compile-gated retrain): [docs/local-workers.md](docs/local-workers.md).
