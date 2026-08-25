@@ -23,6 +23,7 @@ unsloth_compiled_cache/
 
 cartridges/**/*.gguf
 cartridges/**/*.bin
+cartridges/gopher-kungfu/
 *.log
 .DS_Store
 Thumbs.db
