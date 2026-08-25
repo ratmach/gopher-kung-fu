@@ -259,7 +259,10 @@ function TopicsStep({ project, onSaved }: { project: Project; onSaved: (p: Proje
 function CurriculumStep({ project, onChange }: { project: Project; onChange: () => void }) {
   const [items, setItems] = useState<CurriculumItem[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [itemsPerTopic, setItemsPerTopic] = useState(project.items_per_topic ?? 12);
   const job = useStepJob(project, "curriculum", onChange);
+  const topicCount = project.topics.length;
+  const plannedItems = itemsPerTopic * topicCount;
 
   const load = useCallback(() => {
     api.curriculum(project.slug).then((d) => setItems(d.items));
@@ -269,10 +272,14 @@ function CurriculumStep({ project, onChange }: { project: Project; onChange: () 
     load();
   }, [load]);
 
+  useEffect(() => {
+    setItemsPerTopic(project.items_per_topic ?? 12);
+  }, [project.items_per_topic]);
+
   async function generate() {
     setErr(null);
     try {
-      await job.start(() => api.generateCurriculum(project.slug));
+      await job.start(() => api.generateCurriculum(project.slug, itemsPerTopic));
     } catch (e) {
       setErr(String((e as Error).message));
     }
@@ -316,10 +323,29 @@ function CurriculumStep({ project, onChange }: { project: Project; onChange: () 
   return (
     <div>
       <p className="lead">
-        The teacher can draft a syllabus, or you add rows yourself. Distill uses whatever is in this table.
+        Set how many syllabus items the teacher should write for each selected topic, then generate. More items means denser coverage of the same niche.
+      </p>
+      <label>
+        <span className="field-label">
+          Items per topic
+          <Hint text="How many syllabus rows to fetch for each topic you saved on the Topics step. 12 is a typical specialist; 30–80 is a deeper niche before distill." />
+        </span>
+        <input
+          type="number"
+          min={4}
+          max={80}
+          value={itemsPerTopic}
+          disabled={job.running}
+          onChange={(e) => setItemsPerTopic(Number(e.target.value))}
+        />
+      </label>
+      <p className="muted">
+        {topicCount
+          ? `${itemsPerTopic} × ${topicCount} topic${topicCount === 1 ? "" : "s"} → ${plannedItems} syllabus items`
+          : "Save at least one topic first."}
       </p>
       <div className="row">
-        <button className="btn" disabled={job.running || !project.topics.length} onClick={generate}>
+        <button className="btn" disabled={job.running || !topicCount} onClick={generate}>
           Generate syllabus
         </button>
         <button className="btn ghost" type="button" onClick={addItem} disabled={job.running}>
@@ -406,7 +432,10 @@ function DistillStep({ project, onChange }: { project: Project; onChange: () => 
   return (
     <div>
       <p className="lead">
-        Synthetic coding data is stored locally as ShareGPT JSONL. Default is {project.planned_examples || perTopic} planned
+        Synthetic coding data is stored as ShareGPT JSONL, split by topic for reuse
+        (<span className="mono">data/library/&lt;topic&gt;</span> plus this project's{" "}
+        <span className="mono">synthetic/topics</span>). Assistant replies are filtered to be
+        code-first (spec in, full file out). Default is {project.planned_examples || perTopic} planned
         examples. Hold-out eval is 10%.
       </p>
       <label>

@@ -1,0 +1,36 @@
+{
+  "id": "gopher-kungfu",
+  "name": "Gopher kungfu",
+  "base_model": "qwen3-1.7b",
+  "base_hf": "unsloth/Qwen3-1.7B",
+  "topics": [
+    {
+      "id": "go",
+      "label": "Go",
+      "custom": false
+    },
+    {
+      "id": "custom:gin",
+      "label": "gin",
+      "custom": true
+    },
+    {
+      "id": "sql",
+      "label": "SQL",
+      "custom": false
+    },
+    {
+      "id": "concurrency",
+      "label": "Concurrency",
+      "custom": false
+    },
+    {
+      "id": "code-review",
+      "label": "Code review",
+      "custom": false
+    }
+  ],
+  "description": "Go, gin, SQL, Concurrency, Code review",
+  "gguf": "gopher-kungfu.Q4_K_M.gguf",
+  "quant": "Q4_K_M"
+}

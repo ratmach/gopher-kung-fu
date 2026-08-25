@@ -31,6 +31,21 @@ def test_keep_example_requires_code_for_write():
     )
     assert keep_example(bad) is False
     assert keep_example(good) is True
+    essay = ShareGPTExample(
+        conversations=[
+            ShareGPTTurn(role="human", value="Write a mutex"),
+            ShareGPTTurn(
+                role="gpt",
+                value=(
+                    "First consider the architecture, packages, and tradeoffs. "
+                    * 20
+                    + "\n```go\nvar mu sync.Mutex\n```\n"
+                ),
+            ),
+        ],
+        meta={"skill": "write"},
+    )
+    assert keep_example(essay) is False
 
 
 def test_parse_json_and_think():

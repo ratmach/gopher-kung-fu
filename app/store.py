@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from app.models import Curriculum, Project, utcnow
-from app.paths import ensure_dirs, project_dir, PROJECTS_DIR
+from app.paths import LIBRARY_DIR, PROJECTS_DIR, ensure_dirs, project_dir
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -100,6 +100,16 @@ class ProjectStore:
 
     def inbox_jsonl(self, slug: str) -> Path:
         return project_dir(slug) / "synthetic" / "inbox.jsonl"
+
+    def project_topic_jsonl(self, slug: str, topic: str) -> Path:
+        from app.pipeline.library import topic_slug
+
+        return project_dir(slug) / "synthetic" / "topics" / f"{topic_slug(topic)}.jsonl"
+
+    def library_topic_jsonl(self, topic: str) -> Path:
+        from app.pipeline.library import topic_slug
+
+        return LIBRARY_DIR / topic_slug(topic) / "examples.jsonl"
 
     def _project_path(self, slug: str) -> Path:
         return project_dir(slug) / "project.json"

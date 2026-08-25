@@ -67,6 +67,7 @@ class Project(BaseModel):
     updated_at: str = Field(default_factory=utcnow)
     distill: DistillSettings = Field(default_factory=DistillSettings)
     train: TrainSettings = Field(default_factory=TrainSettings)
+    items_per_topic: int = 12
     last_run_id: str | None = None
     cartridge_path: str | None = None
 
@@ -142,7 +143,12 @@ class PatchProjectIn(BaseModel):
     topics: list[TopicRef] | None = None
     distill: DistillSettings | None = None
     train: TrainSettings | None = None
+    items_per_topic: int | None = None
     api_key: str | None = None
+
+
+class GenerateCurriculumIn(BaseModel):
+    items_per_topic: int | None = None
 
 
 class StoreSecretIn(BaseModel):

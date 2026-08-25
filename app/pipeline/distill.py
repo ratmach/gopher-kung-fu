@@ -11,21 +11,28 @@ from app.models import Curriculum, CurriculumItem, DistillSettings, Project, Sha
 from app.pipeline.filters import keep_example
 from app.pipeline.inbox import ExampleInbox
 from app.pipeline.jsonl import split_train_eval, write_jsonl
+from app.pipeline.library import promote_examples, stamp_fingerprint
 from app.store import ProjectStore
 from app.teachers.client import BatchChatRequest, TeacherClient, TeacherError, coerce_json
 
 SYSTEM = """You write synthetic supervised fine-tuning data for a specialist coding SLM.
-Produce realistic developer tasks. The assistant answer must be the specialist: concrete, correct, and terse.
+Produce realistic developer tasks. The assistant answer must be the specialist: concrete and almost entirely code.
 Always include at least one fenced code block in the assistant reply.
 Do not include <think> traces, chain-of-thought, or preamble about being an AI.
 Return JSON only: {"examples":[{"human":"...","gpt":"..."}]}
 Each example is one user request and one assistant answer.
-Skills:
-- write: implement from a spec
-- review: find bugs or smells in a snippet, then show a fix
-- debug: broken code plus a traceback or symptom, then the fix
-- refactor: improve structure without changing behavior
-- idiom: the right library/API usage for this niche
+
+Human message: a short spec a worker could run — behavior, constraints, file path, neighboring signatures if needed. Not an essay.
+
+Assistant message (gpt):
+- Almost only fenced code. At most two sentences after the last fence. No architecture lectures, package shopping lists, or "the rest is similar".
+- write: one complete compiling unit (full file or full function). Prefer this shape:
+  ### relative/path.go
+  ```go
+  package ...
+  ```
+- debug: broken snippet + error in the human; gpt is the patched complete unit.
+- review / refactor / idiom: still a corrected or canonical code block, not a bullet-list review.
 """
 
 CODE_SKILLS = {"write", "review", "debug", "refactor", "idiom"}
@@ -78,7 +85,9 @@ def _user_prompt(project: Project, item: CurriculumItem, count: int) -> str:
         f"Difficulty: {item.difficulty}\n"
         f"Notes: {item.notes or 'none'}\n"
         f"Write {count} diverse examples. Different APIs, bugs, or constraints. No duplicated prompts.\n"
-        "User messages should look like a developer request. Assistant messages should solve it with code."
+        "Human messages are short developer specs (what to build, constraints, file names).\n"
+        "Assistant messages are complete fenced code — full file or function — not sketches or advice.\n"
+        "If this item is write or debug, the gpt field must be dominated by code fences."
     )
 
 
@@ -109,6 +118,8 @@ def _examples_from_raw(raw: object, item: CurriculumItem, count: int) -> list[Sh
                 },
             )
         )
+    for example in examples:
+        stamp_fingerprint(example)
     return examples
 
 
@@ -154,9 +165,16 @@ async def _write_examples(
     train_rows, eval_rows = split_train_eval(kept)
     write_jsonl(store.train_jsonl(project.slug), train_rows)
     write_jsonl(store.eval_jsonl(project.slug), eval_rows)
+    promoted = promote_examples(
+        kept,
+        library_topic_jsonl=store.library_topic_jsonl,
+        project_topic_jsonl=lambda topic: store.project_topic_jsonl(project.slug, topic),
+    )
+    shard_bits = ", ".join(f"{name}+{count}" for name, count in promoted.items()) or "none"
     await hub.log(
         job_id,
-        f"Wrote {len(train_rows)} train and {len(eval_rows)} eval examples. Dropped empties / no-code replies.",
+        f"Wrote {len(train_rows)} train and {len(eval_rows)} eval examples. "
+        f"Topic shards updated ({shard_bits}). Dropped empties / essay-heavy replies.",
         1.0,
     )
     if failures:

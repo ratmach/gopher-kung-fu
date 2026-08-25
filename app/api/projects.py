@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.deps import get_hub, get_secrets, get_store
 from app.jobs import JobHub
@@ -10,6 +10,7 @@ from app.models import (
     CreateProjectIn,
     Curriculum,
     DistillSettings,
+    GenerateCurriculumIn,
     Job,
     PatchProjectIn,
     Project,
@@ -17,6 +18,7 @@ from app.models import (
     TopicRef,
     TrainSettings,
 )
+from app.pipeline.curriculum import clamp_items_per_topic
 from app.pipeline.distill import planned_count
 from app.runners import run_curriculum, run_distill, run_export, run_train
 from app.secrets import SecretStore
@@ -214,6 +216,7 @@ async def _start_job(
 @router.post("/{slug}/curriculum/generate")
 async def generate_curriculum_job(
     slug: str,
+    body: GenerateCurriculumIn = Body(default_factory=GenerateCurriculumIn),
     store: ProjectStore = Depends(get_store),
     secrets: SecretStore = Depends(get_secrets),
     hub: JobHub = Depends(get_hub),
@@ -224,6 +227,9 @@ async def generate_curriculum_job(
         raise HTTPException(404, "specialist not found") from exc
     if not project.topics:
         raise HTTPException(400, "select at least one topic")
+    if body.items_per_topic is not None:
+        project.items_per_topic = clamp_items_per_topic(body.items_per_topic)
+        store.save(project)
     return await _start_job(
         slug,
         "curriculum",

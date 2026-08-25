@@ -18,6 +18,9 @@ train = [
     "unsloth",
     "datasets",
 ]
+mcp = [
+    "mcp>=2.0.0",
+]
 dev = [
     "ruff>=0.6.0",
     "pytest>=8.0.0",
@@ -29,6 +32,7 @@ testpaths = ["tests"]
 
 [project.scripts]
 custom-slm = "app.main:run"
+gopher-mcp = "app.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68"]

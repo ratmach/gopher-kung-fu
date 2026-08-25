@@ -25,6 +25,7 @@ export type Project = {
   has_api_key: boolean;
   curriculum_count: number;
   planned_examples: number;
+  items_per_topic?: number;
   batch_available?: boolean;
   distill: { examples_per_topic: number; train_count: number; eval_count: number; use_batch?: boolean };
   train: {
@@ -94,7 +95,11 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ items }),
     }),
-  generateCurriculum: (slug: string) => req<Job>(`/api/projects/${slug}/curriculum/generate`, { method: "POST" }),
+  generateCurriculum: (slug: string, itemsPerTopic?: number) =>
+    req<Job>(`/api/projects/${slug}/curriculum/generate`, {
+      method: "POST",
+      body: JSON.stringify(itemsPerTopic != null ? { items_per_topic: itemsPerTopic } : {}),
+    }),
   distill: (slug: string) => req<Job>(`/api/projects/${slug}/distill`, { method: "POST" }),
   train: (slug: string) => req<Job>(`/api/projects/${slug}/train`, { method: "POST" }),
   exportCartridge: (slug: string) => req<Job>(`/api/projects/${slug}/export`, { method: "POST" }),

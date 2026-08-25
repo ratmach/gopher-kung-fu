@@ -68,6 +68,16 @@ class _MemStore:
     def inbox_jsonl(self, slug: str) -> Path:
         return self.root / "synthetic" / "inbox.jsonl"
 
+    def project_topic_jsonl(self, slug: str, topic: str) -> Path:
+        from app.pipeline.library import topic_slug
+
+        return self.root / "synthetic" / "topics" / f"{topic_slug(topic)}.jsonl"
+
+    def library_topic_jsonl(self, topic: str) -> Path:
+        from app.pipeline.library import topic_slug
+
+        return self.root / "library" / topic_slug(topic) / "examples.jsonl"
+
 
 class _MemHub(JobHub):
     def _persist(self, job: Job) -> None:

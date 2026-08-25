@@ -24,6 +24,16 @@ class _MemStore:
     def inbox_jsonl(self, slug: str) -> Path:
         return self.root / "synthetic" / "inbox.jsonl"
 
+    def project_topic_jsonl(self, slug: str, topic: str) -> Path:
+        from app.pipeline.library import topic_slug
+
+        return self.root / "synthetic" / "topics" / f"{topic_slug(topic)}.jsonl"
+
+    def library_topic_jsonl(self, topic: str) -> Path:
+        from app.pipeline.library import topic_slug
+
+        return self.root / "library" / topic_slug(topic) / "examples.jsonl"
+
 
 class _MemHub(JobHub):
     def _persist(self, job: Job) -> None:
@@ -111,6 +121,9 @@ def test_live_topic_parallel_and_topic_serial(tmp_path):
     inbox = ExampleInbox(store.inbox_jsonl(project.slug))
     assert inbox.count_for("go-1") >= 1
     assert inbox.count_for("go-2") >= 1
+    assert store.library_topic_jsonl("Go").is_file()
+    assert store.project_topic_jsonl(project.slug, "Go").is_file()
+    assert store.library_topic_jsonl("SQL").is_file()
     assert any("Saved go-1__" in line for line in job.log)
 
 

@@ -1,0 +1,9 @@
+{
+  "slug": "gopher-kungfu",
+  "name": "Gopher kungfu",
+  "merged_dir": "C:\\Users\\there\\Desktop\\custom_slm\\data\\projects\\gopher-kungfu\\runs\\da1251963d62\\merged",
+  "adapter_dir": "C:\\Users\\there\\Desktop\\custom_slm\\data\\projects\\gopher-kungfu\\runs\\da1251963d62\\adapter",
+  "merge_id": "unsloth/Qwen3-1.7B",
+  "out_dir": "C:\\Users\\there\\Desktop\\custom_slm\\cartridges\\gopher-kungfu",
+  "gguf_name": "gopher-kungfu.Q4_K_M.gguf"
+}
