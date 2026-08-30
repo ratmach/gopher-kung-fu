@@ -8,7 +8,9 @@ import httpx
 DEFAULT_FARM_URL = "http://127.0.0.1:8080/v1/chat/completions"
 DEFAULT_MODEL = "gopher-kungfu"
 DEFAULT_MAX_TOKENS = 2048
-IMPLEMENT_MAX_TOKENS = 6144
+IMPLEMENT_MAX_TOKENS = 4096
+IMPLEMENT_TEMPERATURE = 0.0
+ASK_TEMPERATURE = 0.2
 
 IMPLEMENT_CONTRACT = """You are the Go specialist IMPLEMENTER, not an advisor.
 Return production code. Do not give architecture essays, package shopping lists, or sketches.
@@ -23,9 +25,18 @@ package ...
 Rules:
 - Complete files only. No TODOs, no "the rest is similar", no omitted functions.
 - Honor constraints exactly (allowed modules, CGO, layout, names).
+- Honor Existing code signatures exactly (names, parameter types, return arity).
+- Honor Neighbor APIs exactly (names, fields, parameter types, return arity).
 - Do not add dependencies the spec did not allow.
 - If tests are requested, include complete `_test.go` files.
 - After the files, at most two sentences. No preamble before the first file.
+"""
+
+REPAIR_CONTRACT = """This is a REPAIR. The previous attempt failed go test.
+Patch the previous file(s) so that error is gone. Return complete files in the same ### path.go + ```go shape.
+Do not echo the compiler/test error in a code fence. Do not rename the package or path.
+Honor Existing code signatures exactly (return arity, names).
+If the error includes a member list for a type or package, pick from that list. Do not invent methods or fields.
 """
 
 
@@ -48,6 +59,9 @@ def compose_user_content(
     mode: str = "ask",
     constraints: str = "",
     files: str = "",
+    previous_files: str = "",
+    test_error: str = "",
+    neighbor_apis: str = "",
 ) -> str:
     q = (question or "").strip()
     if not q:
@@ -55,6 +69,8 @@ def compose_user_content(
     parts: list[str] = []
     if (mode or "ask").lower() == "implement":
         parts.append(IMPLEMENT_CONTRACT)
+        if (test_error or "").strip() and (previous_files or "").strip():
+            parts.append(REPAIR_CONTRACT)
         parts.append("Spec:\n" + q)
         extra = (constraints or "").strip()
         if extra:
@@ -67,6 +83,18 @@ def compose_user_content(
     snippet = (code or "").strip()
     if snippet:
         parts.append("Existing code:\n```go\n" + snippet + "\n```")
+    apis = (neighbor_apis or "").strip()
+    if apis and (mode or "ask").lower() == "implement":
+        parts.append(
+            "Neighbor APIs (honor these signatures; do not invent fields or arities):\n"
+            "```go\n" + apis + "\n```"
+        )
+    prev = (previous_files or "").strip()
+    err = (test_error or "").strip()
+    if prev:
+        parts.append("Previous attempt (did not compile/pass tests):\n" + prev)
+    if err:
+        parts.append("Compiler/test error:\n" + err)
     return "\n\n".join(parts)
 
 
@@ -79,19 +107,31 @@ def chat_payload(
     mode: str = "ask",
     constraints: str = "",
     files: str = "",
+    previous_files: str = "",
+    test_error: str = "",
+    neighbor_apis: str = "",
 ) -> dict[str, Any]:
     kind = (mode or "ask").lower()
     if max_tokens is None:
         max_tokens = IMPLEMENT_MAX_TOKENS if kind == "implement" else DEFAULT_MAX_TOKENS
+    temperature = IMPLEMENT_TEMPERATURE if kind == "implement" else ASK_TEMPERATURE
     return {
         "model": (model or default_model()).strip() or default_model(),
         "stream": False,
         "max_tokens": max_tokens,
+        "temperature": temperature,
         "messages": [
             {
                 "role": "user",
                 "content": compose_user_content(
-                    question, code, mode=kind, constraints=constraints, files=files
+                    question,
+                    code,
+                    mode=kind,
+                    constraints=constraints,
+                    files=files,
+                    previous_files=previous_files,
+                    test_error=test_error,
+                    neighbor_apis=neighbor_apis,
                 ),
             }
         ],
@@ -140,6 +180,9 @@ def consult(
     mode: str = "ask",
     constraints: str = "",
     files: str = "",
+    previous_files: str = "",
+    test_error: str = "",
+    neighbor_apis: str = "",
     timeout: float = 180.0,
     client: httpx.Client | None = None,
 ) -> str:
@@ -151,6 +194,9 @@ def consult(
         mode=mode,
         constraints=constraints,
         files=files,
+        previous_files=previous_files,
+        test_error=test_error,
+        neighbor_apis=neighbor_apis,
     )
     target = (url or farm_url()).rstrip("/")
     own = client is None

@@ -7,10 +7,11 @@ from app.models import Project
 from app.paths import cartridge_dir
 from app.pipeline.curriculum import generate_curriculum
 from app.pipeline.distill import distill_project
+from app.pipeline.cleanup import cleanup_after_export, cleanup_after_train, format_bytes
 from app.pipeline.export import latest_run_id, spawn_export, write_card
 from app.pipeline.gpu import require_cuda
-from app.pipeline.train import spawn_train, write_train_config
-from app.secrets import SecretStore
+from app.pipeline.train import run_dir, spawn_train, write_train_config
+from app.secret_store import SecretStore
 from app.store import ProjectStore
 from app.teachers.client import TeacherClient, TeacherError
 
@@ -134,6 +135,9 @@ async def run_train(job_id: str, slug: str, store: ProjectStore) -> None:
         project.status = "trained"
         project.last_run_id = job_id
         store.save(project)
+        _removed, freed = cleanup_after_train(run_dir(slug, job_id))
+        if freed:
+            await hub.log(job_id, f"Cleaned trainer checkpoints ({format_bytes(freed)}).")
         await hub.finish(job_id, "done")
     except (Exception, asyncio.CancelledError) as exc:
         await _fail(job_id, slug, store, exc)
@@ -149,7 +153,7 @@ async def run_export(job_id: str, slug: str, store: ProjectStore) -> None:
         project.status = "exporting"
         project.error = None
         store.save(project)
-        await hub.log(job_id, f"Exporting run {run_id} to GGUF Q4_K_M")
+        await hub.log(job_id, f"Exporting run {run_id} to GGUF Q4_K_M (+ Q5_K_M beside it)")
         proc = spawn_export(project, run_id)
         hub.attach_process(job_id, proc)
         code = await _pump_process(job_id, proc)
@@ -163,6 +167,12 @@ async def run_export(job_id: str, slug: str, store: ProjectStore) -> None:
         project.status = "exported"
         project.cartridge_path = str(dest / gguf_name)
         store.save(project)
+        _removed, freed = cleanup_after_export(slug, run_id)
+        if freed:
+            await hub.log(
+                job_id,
+                f"Cleaned merged weights and old runs ({format_bytes(freed)}). Cartridge kept at {dest}.",
+            )
         await hub.log(job_id, f"Cartridge ready at {dest}. Restart or reload the farm server to list it.")
         await hub.finish(job_id, "done")
     except (Exception, asyncio.CancelledError) as exc:

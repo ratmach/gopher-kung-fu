@@ -47,11 +47,13 @@ func main() {
 	if err := f.Scan(); err != nil {
 		log.Fatal(err)
 	}
+	f.Probe()
 	log.Printf("farm root %s — %d specialists, ctx %d", abs, len(f.Models()), f.CtxSize)
+	log.Printf("inference: %s", f.GPUSummary())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": len(f.Models())})
+		writeJSON(w, http.StatusOK, f.Health())
 	})
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, _ *http.Request) {
 		_ = f.Scan()

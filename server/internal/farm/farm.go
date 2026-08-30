@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -29,12 +30,31 @@ type Card struct {
 }
 
 type instance struct {
-	card   Card
-	cmd    *exec.Cmd
-	port   int
-	proxy  *httputil.ReverseProxy
-	last   time.Time
-	cancel func()
+	card    Card
+	cmd     *exec.Cmd
+	port    int
+	proxy   *httputil.ReverseProxy
+	last    time.Time
+	cancel  func()
+	offload string
+	onGPU   bool
+}
+
+type logBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 type Farm struct {
@@ -45,10 +65,12 @@ type Farm struct {
 	GPULayers   int
 	CtxSize     int
 
-	mu        sync.Mutex
-	cards     map[string]Card
-	loaded    map[string]*instance
-	nextPort  int
+	mu         sync.Mutex
+	cards      map[string]Card
+	loaded     map[string]*instance
+	nextPort   int
+	gpuBackend string
+	gpuDevices []string
 }
 
 func New(dir, llama string, maxLoaded, gpuLayers int) *Farm {
@@ -110,6 +132,49 @@ func (f *Farm) Scan() error {
 	return nil
 }
 
+func (f *Farm) Probe() {
+	f.probeBackend()
+}
+
+func (f *Farm) Health() map[string]any {
+	f.mu.Lock()
+	loaded := make([]LoadedOffload, 0, len(f.loaded))
+	var confirmed *bool
+	for id, inst := range f.loaded {
+		item := LoadedOffload{ID: id, Offload: inst.offload, OnGPU: inst.onGPU}
+		loaded = append(loaded, item)
+		if inst.offload != "" {
+			v := inst.onGPU
+			confirmed = &v
+		}
+	}
+	backend := f.gpuBackend
+	devices := append([]string(nil), f.gpuDevices...)
+	llama := f.LlamaServer
+	ngl := f.GPULayers
+	f.mu.Unlock()
+	sort.Slice(loaded, func(i, j int) bool { return loaded[i].ID < loaded[j].ID })
+	status, reason := classifyStatus(ngl, backend, devices, confirmed)
+	gpu := GPUReport{
+		Requested: ngl > 0,
+		Status:    status,
+		Backend:   backend,
+		Devices:   devices,
+		Reason:    reason,
+		NGL:       ngl,
+		Llama:     llama,
+		Confirmed: confirmed != nil,
+		Loaded:    loaded,
+	}
+	return map[string]any{
+		"ok":           true,
+		"models":       len(f.Models()),
+		"llama_server": llama,
+		"ngl":          ngl,
+		"gpu":          gpu,
+	}
+}
+
 func (f *Farm) Models() []Card {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -164,9 +229,10 @@ func (f *Farm) Ensure(id string) (*instance, error) {
 	if f.GPULayers > 0 {
 		args = append(args, "-ngl", fmt.Sprintf("%d", f.GPULayers))
 	}
+	logs := &logBuf{}
 	cmd := exec.Command(f.LlamaServer, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = io.MultiWriter(os.Stdout, logs)
+	cmd.Stderr = io.MultiWriter(os.Stderr, logs)
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start llama-server: %w", err)
 	}
@@ -186,10 +252,20 @@ func (f *Farm) Ensure(id string) (*instance, error) {
 		inst.cancel()
 		return nil, fmt.Errorf("llama-server for %s did not become ready: %w", id, err)
 	}
+	if n, total, ok := ParseOffload(logs.String()); ok {
+		inst.offload = fmt.Sprintf("%d/%d", n, total)
+		inst.onGPU = n > 0
+		if inst.onGPU {
+			log.Printf("loaded %s on :%d GPU offload %s (%s)", id, port, inst.offload, gguf)
+		} else {
+			log.Printf("loaded %s on :%d CPU (offload %s) (%s)", id, port, inst.offload, gguf)
+		}
+	} else {
+		log.Printf("loaded %s on :%d (%s)", id, port, gguf)
+	}
 	f.mu.Lock()
 	f.loaded[id] = inst
 	f.mu.Unlock()
-	log.Printf("loaded %s on :%d (%s)", id, port, gguf)
 	return inst, nil
 }
 

@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from app.jobs import JobHub
 from app.models import Curriculum, CurriculumItem, Project, TopicRef, utcnow
+from app.pipeline.seeds import (
+    GC_CONVERT_ZERO,
+    GC_MAP_REASSIGN,
+    go_compiler_seed_items,
+    is_go_compiler_topic,
+    is_go_language_topic,
+)
 from app.teachers.client import TeacherClient, TeacherError
 
 SKILLS = ["write", "review", "debug", "refactor", "idiom"]
@@ -19,11 +26,25 @@ def clamp_items_per_topic(value: object) -> int:
     return max(MIN_ITEMS_PER_TOPIC, min(MAX_ITEMS_PER_TOPIC, n))
 
 
-def _system(count: int, topic_label: str) -> str:
+def syntax_debug_slots(count: int) -> int:
+    """How many illegal-Go / real-gc debug items to require in a batch of `count`."""
+    n = max(1, int(count))
+    return max(1, min(n, (n + 5) // 6))
+
+
+def _system(count: int, topic_label: str, *, compiler_topic: bool = False) -> str:
+    debug_n = syntax_debug_slots(count)
+    compiler = ""
+    if compiler_topic:
+        compiler = (
+            " This topic is Go compiler diagnostics. Majority skill=debug repair packets. "
+            "Every debug notes field must name a verbatim `gc` line."
+        )
     return f"""You design a narrow coding curriculum for a specialist small language model.
 The model will be fine-tuned only on this niche. Stay specific. Do not broaden into unrelated stacks.
 Return JSON only: {{"items":[{{"id":"kebab-id","topic":"{topic_label}","subtopic":"...","skill":"write|review|debug|refactor|idiom","difficulty":"easy|medium|hard","notes":"what this item should teach"}}]}}
-Cover only the topic "{topic_label}". Mix the five skills. Prefer concrete library/API/idiom work over essays.
+Cover only the topic "{topic_label}". Mix skills but make write and debug the majority. Include some review/refactor/idiom. Prefer concrete library/API/testing work over essays.{compiler}
+At least {debug_n} item(s) must be skill=debug whose notes are illegal Go that `gc` rejects (Python-isms: for/else, elif, try/except, def, list comprehensions; `return 0` / `err == 0` / `WriteByte(...) == 0` which gc reports as {GC_CONVERT_ZERO}; `w.Write(r)` with r rune — Write wants []byte, gpt uses `[]byte(string(r))` / `io.WriteString`; `seen := map[string]int{{}}` then assigned map[string][]string — gc reports {GC_MAP_REASSIGN}, gpt declares the map with the stored value type; and `declared and not used: x` — use the named local, `_` only for `for _, v := range`, never `_ = buf`). Distill those as broken file + verbatim compiler/`go test` line → patched compiling file. Not review essays.
 Return exactly {count} items. Each subtopic must be distinct.
 """
 
@@ -71,6 +92,13 @@ async def _fill_topic(
 ) -> list[CurriculumItem]:
     items: list[CurriculumItem] = []
     empty_rounds = 0
+    compiler_topic = is_go_compiler_topic(topic.id, topic.label)
+    if is_go_language_topic(topic.id, topic.label):
+        for seed in go_compiler_seed_items(topic.label, compiler_topic=compiler_topic):
+            if seed.id in seen or len(items) >= n:
+                continue
+            seen.add(seed.id)
+            items.append(seed)
     while len(items) < n:
         hub.check(job_id)
         need = min(TEACHER_BATCH, n - len(items))
@@ -81,7 +109,11 @@ async def _fill_topic(
             f"Return exactly {need} new syllabus items for this topic only.\n"
             f"Progress: {len(items)}/{n} already written. Do not repeat: {covered}"
         )
-        raw = await client.chat_json(_system(need, topic.label), user, temperature=0.3)
+        raw = await client.chat_json(
+            _system(need, topic.label, compiler_topic=compiler_topic),
+            user,
+            temperature=0.3,
+        )
         chunk = _coerce_items(raw, seen)
         for item in chunk:
             item.topic = topic.label

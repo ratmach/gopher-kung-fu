@@ -131,11 +131,11 @@ class TeacherClient:
             response = await http.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as exc:
             raise TeacherError(f"teacher request failed: {exc}") from exc
-        if response.status_code >= 400 and json_mode:
-            return await self.chat(
-                system, user, temperature=temperature, json_mode=False, http=http
-            )
         if response.status_code >= 400:
+            if json_mode and response.status_code not in {401, 403, 404}:
+                return await self.chat(
+                    system, user, temperature=temperature, json_mode=False, http=http
+                )
             raise TeacherError(f"teacher HTTP {response.status_code}: {response.text[:800]}")
         return completion_content(response.json())
 

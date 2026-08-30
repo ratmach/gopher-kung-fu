@@ -7,7 +7,7 @@ from pathlib import Path
 from app.models import Project
 from app.paths import project_dir
 from app.pipeline.gpu import require_cuda, spawn_python_worker, unsloth_worker_env
-from app.teachers.presets import base_model_spec
+from app.teachers.presets import base_model_spec, response_mask_parts
 
 
 def run_dir(slug: str, run_id: str) -> Path:
@@ -25,6 +25,7 @@ def write_train_config(project: Project, run_id: str) -> Path:
         "train_id": spec["train_id"],
         "merge_id": spec["merge_id"],
         "vision": bool(spec.get("vision")),
+        "trust_remote_code": bool(spec.get("trust_remote_code")),
         "adapter_dir": str(folder / "adapter"),
         "merged_dir": str(folder / "merged"),
         "train_jsonl": str(project_dir(project.slug) / "synthetic" / "train.jsonl"),
@@ -36,6 +37,10 @@ def write_train_config(project: Project, run_id: str) -> Path:
         "batch_size": project.train.batch_size,
         "grad_accum": project.train.grad_accum,
         "learning_rate": project.train.learning_rate,
+        "warmup_ratio": project.train.warmup_ratio,
+        "eval_steps": project.train.eval_steps,
+        "train_on_responses_only": project.train.train_on_responses_only,
+        **response_mask_parts(project.base_model),
     }
     path = folder / "train.json"
     path.write_text(json.dumps(config, indent=2), encoding="utf-8")

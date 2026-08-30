@@ -21,10 +21,10 @@ from app.models import (
 from app.pipeline.curriculum import clamp_items_per_topic
 from app.pipeline.distill import planned_count
 from app.runners import run_curriculum, run_distill, run_export, run_train
-from app.secrets import SecretStore
+from app.secret_store import SecretStore
 from app.store import ProjectStore, slugify, validate_slug
 from app.teachers.client import teacher_supports_batch
-from app.teachers.presets import preset_by_id
+from app.teachers.presets import preset_by_id, train_defaults_for
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -78,6 +78,7 @@ def create_project(
         teacher_preset=body.teacher_preset,
         teacher_model=body.teacher_model or preset["model"],
         teacher_base_url=body.teacher_base_url or preset["base_url"],
+        train=TrainSettings.model_validate(train_defaults_for(body.base_model)),
     )
     store.create(project)
     if body.api_key:
@@ -113,6 +114,7 @@ def patch_project(
         raise HTTPException(404, "specialist not found") from exc
     fields = body.model_fields_set
     api_key = body.api_key if "api_key" in fields else None
+    previous_base = project.base_model
     scalars = body.model_dump(exclude_unset=True, exclude={"api_key", "topics", "distill", "train"})
     for key, value in scalars.items():
         setattr(project, key, value)
@@ -122,6 +124,10 @@ def patch_project(
         project.distill = DistillSettings.model_validate(body.distill)
     if "train" in fields and body.train is not None:
         project.train = TrainSettings.model_validate(body.train)
+    elif project.base_model != previous_base:
+        extras = train_defaults_for(project.base_model)
+        if extras:
+            project.train = TrainSettings.model_validate({**project.train.model_dump(), **extras})
     if project.teacher_preset:
         try:
             preset = preset_by_id(project.teacher_preset)

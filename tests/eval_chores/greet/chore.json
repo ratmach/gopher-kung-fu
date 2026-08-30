@@ -1,0 +1,7 @@
+{
+  "id": "greet",
+  "spec": "Implement Greet(name string) string returning \"hello, \" + name. Empty name returns \"hello\". No extra exports.",
+  "files": "internal/greet/greet.go",
+  "constraints": "stdlib only, no CGO",
+  "existing_code": "package greet\n\nfunc Greet(name string) string"
+}

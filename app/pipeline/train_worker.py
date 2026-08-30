@@ -4,6 +4,11 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
+
+
+QWEN_INSTRUCTION_PART = "<|im_start|>user\n"
+QWEN_RESPONSE_PART = "<|im_start|>assistant\n"
 
 
 def log(message: str) -> None:
@@ -51,6 +56,88 @@ def formatting_prompts_func(examples, tokenizer):
     return {"text": texts}
 
 
+def eval_run_plan(*, has_eval: bool, eval_steps: int) -> dict[str, Any]:
+    if not has_eval:
+        return {"eval_strategy": "no"}
+    if int(eval_steps) > 0:
+        return {"eval_strategy": "steps", "eval_steps": int(eval_steps)}
+    return {"eval_strategy": "epoch"}
+
+
+def sft_config_kwargs(cfg: dict[str, Any], *, has_eval: bool) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "output_dir": str(Path(cfg["adapter_dir"]) / "trainer"),
+        "per_device_train_batch_size": int(cfg["batch_size"]),
+        "gradient_accumulation_steps": int(cfg["grad_accum"]),
+        "num_train_epochs": float(cfg["epochs"]),
+        "learning_rate": float(cfg["learning_rate"]),
+        "logging_steps": 1,
+        "save_strategy": "epoch",
+        "save_total_limit": 1,
+        "warmup_ratio": float(cfg.get("warmup_ratio", 0.05)),
+        "lr_scheduler_type": "cosine",
+        "dataset_text_field": "text",
+        "max_seq_length": int(cfg["seq_len"]),
+        "packing": False,
+        "report_to": "none",
+        "seed": 42,
+        **eval_run_plan(has_eval=has_eval, eval_steps=int(cfg.get("eval_steps") or 0)),
+    }
+    if has_eval:
+        kwargs["per_device_eval_batch_size"] = int(cfg["batch_size"])
+    return kwargs
+
+
+def build_sft_config(cfg: dict[str, Any], *, has_eval: bool):
+    from trl import SFTConfig
+
+    kwargs = sft_config_kwargs(cfg, has_eval=has_eval)
+    try:
+        return SFTConfig(**kwargs)
+    except TypeError:
+        if "eval_strategy" not in kwargs:
+            raise
+        kwargs["evaluation_strategy"] = kwargs.pop("eval_strategy")
+        return SFTConfig(**kwargs)
+
+
+def maybe_mask_prompts(
+    trainer,
+    *,
+    enabled: bool,
+    instruction_part: str | None = None,
+    response_part: str | None = None,
+):
+    if not enabled:
+        return trainer
+    try:
+        from unsloth.chat_templates import train_on_responses_only
+    except ImportError:
+        log("train_on_responses_only not in this Unsloth; training on full sequences")
+        return trainer
+    fallback_instruction = instruction_part or QWEN_INSTRUCTION_PART
+    fallback_response = response_part or QWEN_RESPONSE_PART
+    try:
+        wrapped = train_on_responses_only(trainer)
+        log("Loss on assistant turns only")
+        return wrapped
+    except TypeError:
+        try:
+            wrapped = train_on_responses_only(
+                trainer,
+                instruction_part=fallback_instruction,
+                response_part=fallback_response,
+            )
+            log("Loss on assistant turns only (explicit chat markers)")
+            return wrapped
+        except Exception as exc:
+            log(f"train_on_responses_only failed ({exc}); training on full sequences")
+            return trainer
+    except Exception as exc:
+        log(f"train_on_responses_only failed ({exc}); training on full sequences")
+        return trainer
+
+
 def run(config_path: Path) -> None:
     cfg = json.loads(config_path.read_text(encoding="utf-8"))
     train_path = Path(cfg["train_jsonl"])
@@ -88,11 +175,16 @@ def run(config_path: Path) -> None:
         raise SystemExit("datasets is required for training. pip install datasets") from exc
 
     max_seq = int(cfg["seq_len"])
+    load_kwargs: dict = {
+        "load_in_4bit": True,
+        "max_seq_length": max_seq,
+    }
+    if cfg.get("trust_remote_code"):
+        load_kwargs["trust_remote_code"] = True
     if cfg.get("vision"):
         model, tokenizer = FastVisionModel.from_pretrained(
             cfg["train_id"],
-            load_in_4bit=True,
-            max_seq_length=max_seq,
+            **load_kwargs,
         )
         model = FastVisionModel.get_peft_model(
             model,
@@ -110,8 +202,7 @@ def run(config_path: Path) -> None:
     else:
         model, tokenizer = FastLanguageModel.from_pretrained(
             cfg["train_id"],
-            load_in_4bit=True,
-            max_seq_length=max_seq,
+            **load_kwargs,
         )
         model = FastLanguageModel.get_peft_model(
             model,
@@ -130,7 +221,7 @@ def run(config_path: Path) -> None:
     )
     log(f"Dataset: {len(dataset)} examples")
 
-    from trl import SFTConfig, SFTTrainer
+    from trl import SFTTrainer
 
     eval_path = Path(cfg["eval_jsonl"])
     eval_dataset = None
@@ -143,22 +234,7 @@ def run(config_path: Path) -> None:
                 remove_columns=["conversations"] if "conversations" in eval_rows[0] else None,
             )
 
-    args = SFTConfig(
-        output_dir=str(Path(cfg["adapter_dir"]) / "trainer"),
-        per_device_train_batch_size=int(cfg["batch_size"]),
-        gradient_accumulation_steps=int(cfg["grad_accum"]),
-        num_train_epochs=float(cfg["epochs"]),
-        learning_rate=float(cfg["learning_rate"]),
-        logging_steps=1,
-        save_strategy="epoch",
-        warmup_ratio=0.05,
-        lr_scheduler_type="cosine",
-        dataset_text_field="text",
-        max_seq_length=max_seq,
-        packing=False,
-        report_to="none",
-        seed=42,
-    )
+    args = build_sft_config(cfg, has_eval=eval_dataset is not None)
 
     trainer_kwargs = {
         "model": model,
@@ -175,6 +251,13 @@ def run(config_path: Path) -> None:
         trainer_kwargs.pop("tokenizer", None)
         trainer_kwargs["processing_class"] = tokenizer
         trainer = SFTTrainer(**trainer_kwargs)
+
+    trainer = maybe_mask_prompts(
+        trainer,
+        enabled=bool(cfg.get("train_on_responses_only", True)),
+        instruction_part=cfg.get("instruction_part"),
+        response_part=cfg.get("response_part"),
+    )
 
     log("QLoRA training started")
     trainer.train()

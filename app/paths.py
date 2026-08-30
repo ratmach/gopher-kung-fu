@@ -4,6 +4,36 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_repo_env(*, override: bool = False) -> Path | None:
+    """Load repo-root `.env` into os.environ (existing vars win unless override).
+
+    Hugging Face Hub reads `HF_TOKEN` for authenticated downloads (higher rate limits).
+    """
+    path = ROOT / ".env"
+    if not path.is_file():
+        return None
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.lower().startswith("export "):
+            line = line[7:].lstrip()
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        if not key or not value:
+            continue
+        if override or key not in os.environ:
+            os.environ[key] = value
+    return path
+
+
+load_repo_env()
+
 DATA_DIR = Path(os.environ.get("CUSTOM_SLM_DATA", ROOT / "data")).resolve()
 PROJECTS_DIR = DATA_DIR / "projects"
 LIBRARY_DIR = DATA_DIR / "library"

@@ -21,7 +21,13 @@ Skill = Literal["write", "review", "debug", "refactor", "idiom"]
 Difficulty = Literal["easy", "medium", "hard"]
 JobKind = Literal["curriculum", "distill", "train", "export"]
 JobStatus = Literal["queued", "running", "done", "error", "cancelled"]
-BaseModelId = Literal["qwen3-1.7b", "ministral-3b"]
+BaseModelId = Literal[
+    "qwen3-1.7b",
+    "qwen2.5-coder-3b",
+    "qwen2.5-coder-7b",
+    "qwen3-4b",
+    "deepseek-coder-v2",
+]
 
 
 def utcnow() -> str:
@@ -49,6 +55,9 @@ class TrainSettings(BaseModel):
     batch_size: int = 1
     grad_accum: int = 8
     learning_rate: float = 2e-4
+    warmup_ratio: float = 0.05
+    eval_steps: int = 0
+    train_on_responses_only: bool = True
 
 
 class Project(BaseModel):
@@ -70,6 +79,10 @@ class Project(BaseModel):
     items_per_topic: int = 12
     last_run_id: str | None = None
     cartridge_path: str | None = None
+    allowed_imports: list[str] = Field(
+        default_factory=lambda: ["encoding/csv", "encoding/json"]
+    )
+    forbidden_imports: list[str] = Field(default_factory=lambda: ["C"])
 
 
 class CurriculumItem(BaseModel):
@@ -144,6 +157,7 @@ class PatchProjectIn(BaseModel):
     distill: DistillSettings | None = None
     train: TrainSettings | None = None
     items_per_topic: int | None = None
+    allowed_imports: list[str] | None = None
     api_key: str | None = None
 
 

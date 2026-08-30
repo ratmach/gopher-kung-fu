@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.jobs import hub
-from app.secrets import SecretStore
+from app.secret_store import SecretStore
 from app.store import ProjectStore
 
 

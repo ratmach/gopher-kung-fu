@@ -15,7 +15,7 @@ export type Job = {
 export type Project = {
   slug: string;
   name: string;
-  base_model: "qwen3-1.7b" | "ministral-3b";
+  base_model: string;
   teacher_preset: string;
   teacher_model: string;
   teacher_base_url: string;
@@ -36,6 +36,9 @@ export type Project = {
     batch_size: number;
     grad_accum: number;
     learning_rate: number;
+    warmup_ratio: number;
+    eval_steps: number;
+    train_on_responses_only: boolean;
   };
   cartridge_path?: string | null;
   jobs?: Job[];

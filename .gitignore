@@ -17,6 +17,7 @@ data/*
 *.key
 .env
 .env.*
+!.env.example
 .hf_home/
 runs/
 unsloth_compiled_cache/

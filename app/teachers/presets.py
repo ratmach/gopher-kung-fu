@@ -51,14 +51,54 @@ BASE_MODELS: dict[str, dict[str, Any]] = {
         "default": True,
         "vram_hint": "~8 GB for QLoRA",
     },
-    "ministral-3b": {
-        "id": "ministral-3b",
-        "label": "Ministral 3B",
-        "train_id": "unsloth/Ministral-3-3B-Instruct-2512",
-        "merge_id": "unsloth/Ministral-3-3B-Instruct-2512",
+    "qwen2.5-coder-3b": {
+        "id": "qwen2.5-coder-3b",
+        "label": "Qwen2.5-Coder 3B Instruct",
+        "train_id": "unsloth/Qwen2.5-Coder-3B-Instruct-bnb-4bit",
+        "merge_id": "unsloth/Qwen2.5-Coder-3B-Instruct",
         "default": False,
-        "vram_hint": "Prefer 12 GB+. Language layers only (vision off).",
-        "vision": True,
+        "vram_hint": "~8 GB for QLoRA",
+        "train_defaults": {
+            "seq_len": 4096,
+            "learning_rate": 1e-4,
+        },
+    },
+    "qwen3-4b": {
+        "id": "qwen3-4b",
+        "label": "Qwen3 4B",
+        "train_id": "unsloth/Qwen3-4B-unsloth-bnb-4bit",
+        "merge_id": "unsloth/Qwen3-4B",
+        "default": False,
+        "vram_hint": "~10 GB for QLoRA",
+        "train_defaults": {
+            "seq_len": 4096,
+            "learning_rate": 1e-4,
+        },
+    },
+    "qwen2.5-coder-7b": {
+        "id": "qwen2.5-coder-7b",
+        "label": "Qwen2.5-Coder 7B Instruct",
+        "train_id": "unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit",
+        "merge_id": "unsloth/Qwen2.5-Coder-7B-Instruct",
+        "default": False,
+        "vram_hint": "Prefer 12 GB+",
+        "train_defaults": {
+            "seq_len": 4096,
+            "learning_rate": 1e-4,
+        },
+    },
+    "deepseek-coder-v2": {
+        "id": "deepseek-coder-v2",
+        "label": "DeepSeek-Coder-V2 Lite Instruct",
+        "train_id": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+        "merge_id": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+        "default": False,
+        "vram_hint": "Prefer 16 GB+ (16B MoE, 2.4B active). Full 236B is not a local student.",
+        "trust_remote_code": True,
+        "train_defaults": {
+            "seq_len": 4096,
+            "learning_rate": 1e-4,
+        },
     },
 }
 
@@ -74,3 +114,22 @@ def base_model_spec(model_id: BaseModelId | str) -> dict[str, Any]:
     if model_id not in BASE_MODELS:
         raise KeyError(f"unknown base model: {model_id}")
     return BASE_MODELS[model_id]
+
+
+def train_defaults_for(model_id: BaseModelId | str) -> dict[str, Any]:
+    return dict(base_model_spec(model_id).get("train_defaults") or {})
+
+
+def response_mask_parts(model_id: BaseModelId | str) -> dict[str, str]:
+    key = str(model_id or "")
+    if key.startswith("deepseek"):
+        return {"instruction_part": "User:", "response_part": "Assistant:"}
+    if key.startswith("qwen"):
+        return {
+            "instruction_part": "<|im_start|>user\n",
+            "response_part": "<|im_start|>assistant\n",
+        }
+    return {
+        "instruction_part": "<|start_header_id|>user<|end_header_id|>\n\n",
+        "response_part": "<|start_header_id|>assistant<|end_header_id|>\n\n",
+    }

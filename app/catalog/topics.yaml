@@ -3,6 +3,7 @@ categories:
     label: Languages
     topics:
       - {id: go, label: Go}
+      - {id: go-compiler, label: Go compiler}
       - {id: python, label: Python}
       - {id: typescript, label: TypeScript}
       - {id: rust, label: Rust}

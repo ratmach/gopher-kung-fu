@@ -1,0 +1,7 @@
+{
+  "id": "clamp",
+  "spec": "Implement Clamp(n, lo, hi int) int. If n < lo return lo; if n > hi return hi; else n. No extra exports.",
+  "files": "internal/clamp/clamp.go",
+  "constraints": "stdlib only, no CGO",
+  "existing_code": "package clamp\n\nfunc Clamp(n, lo, hi int) int"
+}

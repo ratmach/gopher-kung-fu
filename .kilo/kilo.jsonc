@@ -1,0 +1,30 @@
+{
+  // PyCharm / JetBrains Kilo Code reads this file (not .kilocode/mcp.json).
+  // Chat model must stay Kimi (or another capable agent) — not gopher-kungfu.
+  // Launch python.exe directly. cmd /c + .cmd breaks stdio pipes on Windows and
+  // Kilo will restart the server in a loop.
+  "instructions": [".kilo/rules/gopher-kungfu.md"],
+  "experimental": {
+    "mcp_timeout": 180000
+  },
+  "mcp": {
+    "gopher-kungfu": {
+      "type": "local",
+      "command": [
+        "C:\\Users\\there\\Desktop\\custom_slm\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\there\\Desktop\\custom_slm\\scripts\\gopher_mcp.py"
+      ],
+      "environment": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "GOPHER_FARM_URL": "http://127.0.0.1:8080/v1/chat/completions",
+        "GOPHER_FARM_MODEL": "gopher-kungfu"
+        // Optional: "GOPHER_WORKSPACE": "C:\\\\path\\\\to\\\\go\\\\module"
+      },
+      "enabled": true,
+      "timeout": 180000
+    }
+  }
+}

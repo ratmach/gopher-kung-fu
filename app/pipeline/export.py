@@ -24,6 +24,9 @@ def latest_run_id(slug: str) -> str | None:
 
 def write_card(project: Project, out_dir: Path, gguf_name: str) -> Path:
     spec = base_model_spec(project.base_model)
+    forbidden = list(project.forbidden_imports or [])
+    if "C" not in forbidden:
+        forbidden.append("C")
     card = {
         "id": project.slug,
         "name": project.name,
@@ -33,6 +36,8 @@ def write_card(project: Project, out_dir: Path, gguf_name: str) -> Path:
         "description": ", ".join(topic.label for topic in project.topics) or project.name,
         "gguf": gguf_name,
         "quant": "Q4_K_M",
+        "allowed_imports": list(project.allowed_imports or []),
+        "forbidden_imports": forbidden,
     }
     path = out_dir / "card.json"
     path.write_text(json.dumps(card, indent=2), encoding="utf-8")
@@ -51,6 +56,7 @@ def spawn_export(project: Project, run_id: str) -> subprocess.Popen:
         "merge_id": spec["merge_id"],
         "out_dir": str(dest),
         "gguf_name": f"{project.slug}.Q4_K_M.gguf",
+        "quants": ["Q4_K_M", "Q5_K_M"],
     }
     config = dest / "export.json"
     config.write_text(json.dumps(payload, indent=2), encoding="utf-8")

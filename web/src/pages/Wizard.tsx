@@ -436,7 +436,8 @@ function DistillStep({ project, onChange }: { project: Project; onChange: () => 
         (<span className="mono">data/library/&lt;topic&gt;</span> plus this project's{" "}
         <span className="mono">synthetic/topics</span>). Assistant replies are filtered to be
         code-first (spec in, full file out). Default is {project.planned_examples || perTopic} planned
-        examples. Hold-out eval is 10%.
+        examples. Hold-out eval is 10%. A re-run fills syllabus items that are still short (a new topic
+        or new rows) and only clears the inbox when every current item is already at quota.
       </p>
       <label>
         Examples per topic
@@ -483,6 +484,10 @@ function TrainStep({ project, onChange }: { project: Project; onChange: () => vo
   const job = useStepJob(project, "train", onChange);
 
   useEffect(() => {
+    setTrain(project.train);
+  }, [project.train]);
+
+  useEffect(() => {
     api.runtime().then(setRuntime).catch(() => setRuntime(null));
   }, []);
 
@@ -513,30 +518,92 @@ function TrainStep({ project, onChange }: { project: Project; onChange: () => vo
         <label>
           <span className="field-label">
             LoRA rank
-            <Hint text="How wide the adapter is. Higher learns more of the niche but uses more VRAM and can overfit. 8–16 is typical for a 1.7B specialist." />
+            <Hint text="How wide the adapter is. Higher learns more of the niche but uses more VRAM and can overfit. 8–16 is typical; 32 is the next step on 7B if 16 is shy." />
           </span>
-          <input type="number" value={train.lora_r} onChange={(e) => setTrain({ ...train, lora_r: Number(e.target.value) })} />
+          <input type="number" min={1} value={train.lora_r} onChange={(e) => setTrain({ ...train, lora_r: Number(e.target.value) })} />
         </label>
         <label>
           <span className="field-label">
             LoRA alpha
             <Hint text="How strongly the adapter is mixed back into the base model. Keep it equal to rank, or 2× rank if the fine-tune is too shy." />
           </span>
-          <input type="number" value={train.lora_alpha} onChange={(e) => setTrain({ ...train, lora_alpha: Number(e.target.value) })} />
+          <input type="number" min={1} value={train.lora_alpha} onChange={(e) => setTrain({ ...train, lora_alpha: Number(e.target.value) })} />
         </label>
         <label>
           <span className="field-label">
             Epochs
             <Hint text="How many times the trainer walks the distilled JSONL. 1–2 is enough for a few hundred examples. More than 3 usually overfits a small set." />
           </span>
-          <input type="number" step="0.5" value={train.epochs} onChange={(e) => setTrain({ ...train, epochs: Number(e.target.value) })} />
+          <input type="number" min={0.5} step="0.5" value={train.epochs} onChange={(e) => setTrain({ ...train, epochs: Number(e.target.value) })} />
         </label>
         <label>
           <span className="field-label">
             Sequence length
-            <Hint text="Max tokens per example (prompt plus answer). 2048 fits most coding snippets. Longer needs more VRAM; longer examples get truncated." />
+            <Hint text="Max tokens per example (prompt plus answer). Match implement_go: 4096 for 3B/4B/7B/Lite. 2048 truncates complete files. Longer needs more VRAM." />
           </span>
-          <input type="number" value={train.seq_len} onChange={(e) => setTrain({ ...train, seq_len: Number(e.target.value) })} />
+          <input type="number" min={256} step={256} value={train.seq_len} onChange={(e) => setTrain({ ...train, seq_len: Number(e.target.value) })} />
+        </label>
+        <label>
+          <span className="field-label">
+            Learning rate
+            <Hint text="Unsloth QLoRA default is 2e-4 (1.7B). Use 1e-4 on 3B/4B/7B/Lite so the adapter does not overshoot." />
+          </span>
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={train.learning_rate}
+            onChange={(e) => setTrain({ ...train, learning_rate: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          <span className="field-label">
+            Batch size
+            <Hint text="Per-GPU batch. Keep 1 on 12 GB with seq 4096. Only raise if VRAM still has headroom." />
+          </span>
+          <input type="number" min={1} value={train.batch_size} onChange={(e) => setTrain({ ...train, batch_size: Number(e.target.value) })} />
+        </label>
+        <label>
+          <span className="field-label">
+            Gradient accumulation
+            <Hint text="Effective batch is batch × this. Default 8. Cut to 4 if sequence 4096 runs out of VRAM." />
+          </span>
+          <input type="number" min={1} value={train.grad_accum} onChange={(e) => setTrain({ ...train, grad_accum: Number(e.target.value) })} />
+        </label>
+        <label>
+          <span className="field-label">
+            Warmup ratio
+            <Hint text="Fraction of steps spent ramping the learning rate. 0.05 is typical; 0.03–0.1 is the useful range." />
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={0.5}
+            step="0.01"
+            value={train.warmup_ratio}
+            onChange={(e) => setTrain({ ...train, warmup_ratio: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          <span className="field-label">
+            Eval every N steps
+            <Hint text="0 = once per epoch when eval.jsonl exists. Greater than 0 evaluates every N optimizer steps. No eval file means this is ignored." />
+          </span>
+          <input type="number" min={0} value={train.eval_steps} onChange={(e) => setTrain({ ...train, eval_steps: Number(e.target.value) })} />
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={train.train_on_responses_only !== false}
+            onChange={(e) => setTrain({ ...train, train_on_responses_only: e.target.checked })}
+          />
+          <span>
+            <span className="field-label">
+              Train on responses only
+              <Hint text="Loss on the assistant Go, not the spec. Leave on. Falls back to full-sequence loss if this Unsloth build cannot mask prompts." />
+            </span>
+            <span className="muted">Masks the user turn so the adapter learns to write files, not copy the prompt.</span>
+          </span>
         </label>
       </div>
       <div className="row" style={{ marginTop: 14 }}>
@@ -565,7 +632,7 @@ function ExportStep({ project, onChange }: { project: Project; onChange: () => v
 
   return (
     <div>
-      <p className="lead">Merge is already done after train. This step writes a Q4_K_M GGUF and card.json into cartridges/.</p>
+      <p className="lead">Merge is already done after train. This step writes Q4_K_M (card default) plus Q5_K_M beside it into cartridges/.</p>
       {project.cartridge_path && <p className="mono">{project.cartridge_path}</p>}
       <div className="note">
         Serve the farm:{" "}

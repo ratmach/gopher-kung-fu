@@ -86,8 +86,14 @@ class _MemHub(JobHub):
 
 def _code_example(tag: str) -> dict:
     return {
-        "human": f"write {tag}",
-        "gpt": f"use:\n```go\nvar mu sync.Mutex // {tag}\n```\n",
+        "human": (
+            f"Implement Tag() string in pkg/a.go for {tag}. "
+            "constraints: stdlib only, no CGO. files: pkg/a.go"
+        ),
+        "gpt": (
+            f"### pkg/a.go\n```go\npackage pkg\n\n"
+            f"func Tag() string {{ return {json.dumps(tag)} }}\n```\n"
+        ),
     }
 
 
